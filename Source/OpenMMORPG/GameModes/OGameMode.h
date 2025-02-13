@@ -9,13 +9,13 @@
 /**
  * 
  */
-UCLASS()
+UCLASS(Blueprintable)
 class OPENMMORPG_API AOGameMode : public AGameModeBase
 {
 	GENERATED_BODY()
-	
+
 public:
 
 	AOGameMode();
-	
+
 };

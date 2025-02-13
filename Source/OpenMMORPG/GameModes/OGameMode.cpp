@@ -10,5 +10,6 @@ AOGameMode::AOGameMode() {
 	{
 		DefaultPawnClass = PlayerPawnBPClass.Class;
 	}
+
 }
 

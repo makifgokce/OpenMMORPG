@@ -12,6 +12,8 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Kismet/GameplayStatics.h"
+#include "../UI/OHud.h"
+#include "../Player/OPlayerState.h"
 
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -76,7 +78,7 @@ void AOCharacterBase::BeginPlay()
 		PlayerController->bEnableClickEvents = true;
 		PlayerController->bShowMouseCursor = true;
 
-	}
+}
 
 }
 
@@ -85,6 +87,25 @@ TArray<AActor*> AOCharacterBase::GetTargetsInRange()
 	TArray<AActor*> Targets;
 	Sphere->GetOverlappingActors(Targets, ACharacter::StaticClass());
 	return Targets;
+}
+
+void AOCharacterBase::InitAbilitySystemComponent()
+{
+	AOPlayerState* PState = GetPlayerState<AOPlayerState>();
+	if (!PState) return;
+	AbilitySystemComponent = CastChecked<UGAS_AbilitySystemComponent>(
+		PState->GetAbilitySystemComponent());
+	AbilitySystemComponent->InitAbilityActorInfo(PState, this);
+	Attributes = PState->GetAttributeSet();
+}
+
+void AOCharacterBase::InitHUD()
+{
+	if (const APlayerController* PlayerController = Cast<APlayerController>(GetController())) {
+		if (AOHud* PlayerHUD = Cast<AOHud>(PlayerController->GetHUD())) {
+			PlayerHUD->Init();
+		}
+	}
 }
 
 // Called every frame
@@ -190,5 +211,79 @@ void AOCharacterBase::OnRightClickReleased()
 		PlayerController->bEnableClickEvents = true;
 		PlayerController->bShowMouseCursor = true;
 		PlayerController->SetMouseLocation(MousePos.X, MousePos.Y);
+	}
+}
+
+// Called to bind functionality to input
+UAbilitySystemComponent* AOCharacterBase::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void AOCharacterBase::InitializeAttributes()
+{
+	if (AbilitySystemComponent && DefaultAttributeEffect)
+	{
+		// Create context object for this gameplay effecct
+		FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+		EffectContext.AddSourceObject(this);
+
+		// Create an outgoing effect spec using the effect to apply and the context
+		FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(DefaultAttributeEffect, 1, EffectContext);
+
+		if (SpecHandle.IsValid())
+		{
+			// Apply the effect using the derived spec
+			// + Could be ApplyGameplayEffectToTarget() instead if we were shooting a target
+			FActiveGameplayEffectHandle GEHandle = AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+		}
+	}
+}
+
+void AOCharacterBase::GiveAbilities()
+{
+	if (HasAuthority() && AbilitySystemComponent)
+	{
+		for (TSubclassOf<UGAS_GameplayAbility>& StartupAbility : DefaultAbilities)
+		{
+			if (!StartupAbility)
+			{
+				continue;
+			}
+
+			AbilitySystemComponent->GiveAbility(
+				FGameplayAbilitySpec(StartupAbility, 1, static_cast<int32>(StartupAbility.GetDefaultObject()->AbilityInputID), this));
+		}
+	}
+}
+
+void AOCharacterBase::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// Owner and Avatar are bother this character
+	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+
+	InitAbilitySystemComponent();
+	GiveAbilities();
+	InitializeAttributes();
+	InitHUD();
+}
+
+void AOCharacterBase::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+
+	InitAbilitySystemComponent();
+	InitializeAttributes();
+	InitHUD();
+
+	if (AbilitySystemComponent && InputComponent)
+	{
+		// Where the 3rd parameter is a string equal to enum typename defined in unrealgame5.h
+		const FGameplayAbilityInputBinds Binds("Confirm", "Cancel", "EGASAbilityInputID", static_cast<int32>(EGASAbilityInputID::Confirm), static_cast<int32>(EGASAbilityInputID::Cancel));
+		AbilitySystemComponent->BindAbilityActivationToInputComponent(InputComponent, Binds);
 	}
 }
